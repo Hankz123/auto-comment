@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const config = require("./config");
 const { runTask } = require("./browser");
 const { getOrCreateBitable, getOrCreateTable, addRecord, sendDM, sendCard, OWNER_OPEN_ID } = require("./feishu");
 
@@ -12,7 +13,7 @@ let taskState = {
   running: false,
   accounts: [],
   currentAccountIndex: 0,
-  endTime: 0,  // 任务截止时间戳
+  endTime: 0,
 };
 
 // 健康检查
@@ -26,29 +27,27 @@ app.post("/api/start", async (req, res) => {
     return res.status(409).json({ error: "已有任务正在执行中" });
   }
 
-  const config = req.body;
-  // 验证必填字段
-  if (!config.keywords?.trim()) {
+  const cfg = req.body;
+  if (!cfg.keywords?.trim()) {
     return res.status(400).json({ error: "关键词不能为空" });
   }
-  if (!config.comments?.length) {
+  if (!cfg.comments?.length) {
     return res.status(400).json({ error: "评论内容池不能为空" });
   }
-  if (!config.intervalMinutes || config.intervalMinutes < 1) {
+  if (!cfg.intervalMinutes || cfg.intervalMinutes < 1) {
     return res.status(400).json({ error: "间隔时间必须填写且≥1分钟" });
   }
-  if (!config.accounts?.length) {
+  if (!cfg.accounts?.length) {
     return res.status(400).json({ error: "账号池不能为空" });
   }
-  if (!config.taskDurationMinutes || config.taskDurationMinutes < 1) {
+  if (!cfg.taskDurationMinutes || cfg.taskDurationMinutes < 1) {
     return res.status(400).json({ error: "任务总时长必须填写且≥1分钟" });
   }
 
   taskState.running = true;
-  res.json({ status: "started", config });
+  res.json({ status: "started", config: cfg });
 
-  // 异步执行任务（不阻塞HTTP响应）
-  executeTasks(config).catch((err) => {
+  executeTasks(cfg).catch((err) => {
     console.error("任务执行异常:", err);
   }).finally(() => {
     taskState.running = false;
@@ -63,14 +62,12 @@ app.post("/api/stop", (req, res) => {
 
 // ── 账号管理 API ──
 
-/** 打开浏览器登录账号 */
 app.post("/api/account/login", async (req, res) => {
   const { account } = req.body;
   if (!account) return res.status(400).json({ error: "账号名不能为空" });
 
   res.json({ status: "opening", account });
 
-  // 异步执行，不阻塞响应
   try {
     const { launchBrowser, closeBrowser, waitForLogin } = require("./browser");
     const { browser } = await launchBrowser(account);
@@ -91,23 +88,22 @@ app.post("/api/account/login", async (req, res) => {
   }
 });
 
-/** 检测账号登录状态 */
 app.get("/api/account/check", async (req, res) => {
   const { account } = req.query;
   if (!account) return res.status(400).json({ error: "缺少账号名" });
 
-  const userDataDir = require("path").join(__dirname, "chrome-profiles", account);
+  const userDataDir = path.join(__dirname, "chrome-profiles", account);
   const fs = require("fs");
 
   if (!fs.existsSync(userDataDir)) {
     return res.json({ account, loggedIn: false, reason: "未找到 Profile 目录" });
   }
 
-  // 用 headless Chrome 检查 Cookie
   let browser;
   try {
+    const { chromePath } = config;
     browser = await require("puppeteer-core").launch({
-      executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      executablePath: chromePath,
       userDataDir,
       headless: true,
       args: ["--no-first-run", "--no-default-browser-check"],
@@ -138,21 +134,17 @@ app.get("/api/account/check", async (req, res) => {
   }
 });
 
-/** 删除账号及其所有数据 */
 app.delete("/api/account", async (req, res) => {
   const { account } = req.body;
   if (!account) return res.status(400).json({ error: "缺少账号名" });
 
   const fs = require("fs");
-  const path = require("path");
 
-  // 删除 Chrome Profile 目录
   const profileDir = path.join(__dirname, "chrome-profiles", account);
   if (fs.existsSync(profileDir)) {
     fs.rmSync(profileDir, { recursive: true, force: true });
   }
 
-  // 删除截图
   const ssDir = path.join(__dirname, "screenshots");
   if (fs.existsSync(ssDir)) {
     const files = fs.readdirSync(ssDir).filter((f) => f.startsWith(`${account}_`));
@@ -163,7 +155,7 @@ app.delete("/api/account", async (req, res) => {
   res.json({ status: "deleted", account });
 });
 
-async function executeTasks(config) {
+async function executeTasks(cfg) {
   const {
     platform = "bilibili",
     accounts,
@@ -172,7 +164,7 @@ async function executeTasks(config) {
     intervalMinutes,
     switchAccountMinutes = 0,
     taskDurationMinutes,
-  } = config;
+  } = cfg;
 
   const taskStartTime = Date.now();
   const taskEndTime = taskStartTime + taskDurationMinutes * 60 * 1000;
@@ -184,7 +176,6 @@ async function executeTasks(config) {
   console.log(`  预计结束: ${new Date(taskEndTime).toLocaleTimeString()}`);
   console.log("=".repeat(60));
 
-  // ── 初始化飞书多维表格 ──
   let bitableToken, tableId, bitableUrl;
   let bitableOK = false;
   try {
@@ -201,14 +192,10 @@ async function executeTasks(config) {
   } catch (e) {
     console.error("飞书表格初始化失败:", e.message);
 
-    // 发送权限缺失通知
     if (e.message === "BOT_MISSING_PERMISSION") {
       console.log("\n⚠️  Bot 缺少多维表格权限，请按以下步骤授权：");
       console.log("  1. 打开飞书开放平台 → 应用 → 权限管理");
-      console.log("  2. 搜索并开启权限:");
-      console.log("     - bitable:app (多维表格)");
-      console.log("     - drive:drive (云文档)");
-      console.log("     - im:message (消息通知)");
+      console.log("  2. 搜索并开启权限: bitable:app, drive:drive, im:message");
       console.log("  3. 重新发布应用 → 版本管理与发布 → 创建版本");
       console.log("  4. 重新运行本工具");
 
@@ -225,7 +212,6 @@ async function executeTasks(config) {
     }
   }
 
-  // ── 发送开始通知 ──
   try {
     await sendDM(
       `🚀 B站自动回帖任务已启动\n` +
@@ -246,7 +232,6 @@ async function executeTasks(config) {
   let totalSuccess = 0;
 
   while (taskState.running) {
-    // 检查总时长是否已到
     if (Date.now() >= taskState.endTime) {
       console.log(`\n⏰ 任务总时长 (${taskDurationMinutes}分钟) 已到，自动停止`);
       await sendDM(`⏰ 任务总时长 (${taskDurationMinutes}分钟) 已到，自动停止`).catch(() => {});
@@ -272,7 +257,6 @@ async function executeTasks(config) {
 
       console.log(`\n📊 本轮: ${successCount}/${results.length} 成功`);
 
-      // 记录到飞书多维表格
       if (bitableOK && bitableToken && tableId) {
         console.log("\n📝 记录到飞书多维表格...");
         for (const result of results) {
@@ -284,7 +268,6 @@ async function executeTasks(config) {
         }
       }
 
-      // ── 发送本轮完成通知 ──
       try {
         const videoList = results
           .filter((r) => r.success)
@@ -306,7 +289,6 @@ async function executeTasks(config) {
       } catch (_) {}
     }
 
-    // 账号/轮次间隔
     if (switchAccountMinutes && switchAccountMinutes > 0) {
       accountIndex++;
       console.log(`\n⏳ 切换账号，等待 ${switchAccountMinutes} 分钟...`);
@@ -317,7 +299,6 @@ async function executeTasks(config) {
     }
   }
 
-  // ── 任务停止通知 ──
   try {
     await sendDM(
       `⏹ 任务已停止\n` +
@@ -330,7 +311,6 @@ async function executeTasks(config) {
   console.log("\n任务已停止");
 }
 
-/** 等待指定分钟（可被打断，距离任务结束不足时提前返回） */
 async function sleepMinutes(minutes) {
   const totalMs = minutes * 60 * 1000;
   const checkInterval = 5000;
@@ -344,7 +324,7 @@ async function sleepMinutes(minutes) {
   }
 }
 
-const PORT = process.env.PORT || 3456;
+const PORT = config.port;
 app.listen(PORT, () => {
   console.log(`B站自动回帖工具已启动: http://localhost:${PORT}`);
   console.log(`API端点: http://localhost:${PORT}/api/start`);

@@ -1,17 +1,9 @@
 const axios = require("axios");
 const FormData = require("form-data");
 const fs = require("fs");
+const config = require("./config");
 
-const path = require("path");
-const os = require("os");
-const configPath = path.resolve(os.homedir(), ".openclaw/openclaw.json");
-const gwConfig = require(configPath);
-const feishuCfg = gwConfig.channels?.feishu || {};
-const APP_ID = feishuCfg.appId;
-const APP_SECRET = feishuCfg.appSecret;
-
-// 洋葱大人的飞书 open_id
-const OWNER_OPEN_ID = "ou_a48329c140a2fb276fbe040a9ee69b60";
+const { feishuAppId: APP_ID, feishuAppSecret: APP_SECRET, ownerOpenId: OWNER_OPEN_ID } = config;
 
 let cachedToken = null;
 let tokenExpiresAt = 0;
@@ -51,7 +43,7 @@ async function apiPostForm(p, form) {
 
 // ─────────── 消息通知 ───────────
 
-/** 发送飞书私信给洋葱大人 */
+/** 发送飞书私信 */
 async function sendDM(text) {
   try {
     await apiPost("/im/v1/messages?receive_id_type=open_id", {
@@ -68,11 +60,6 @@ async function sendDM(text) {
 /** 发送富文本卡片通知 */
 async function sendCard(title, fields) {
   try {
-    const fieldList = fields
-      .map((f) => `**${f.label}**：${f.value}`)
-      .join("\n");
-    const content = `**${title}**\n\n${fieldList}`;
-
     await apiPost("/im/v1/messages?receive_id_type=open_id", {
       receive_id: OWNER_OPEN_ID,
       msg_type: "interactive",
@@ -90,7 +77,6 @@ async function sendCard(title, fields) {
     });
     console.log("  📨 飞书卡片已发送");
   } catch (e) {
-    // 卡片发送失败，回退到文本
     console.log("  ⚠️  卡片发送失败，回退文本:", e.response?.data?.msg || e.message);
     await sendDM(`${title}\n\n${fields.map(f => `${f.label}：${f.value}`).join("\n")}`);
   }
@@ -99,7 +85,6 @@ async function sendCard(title, fields) {
 // ─────────── 多维表格 ───────────
 
 async function getOrCreateBitable() {
-  // 搜索已存在的多维表格
   try {
     const listRes = await apiGet("/bitable/v1/apps", { page_size: 50 });
     const apps = listRes.data?.data?.items || [];
@@ -116,7 +101,6 @@ async function getOrCreateBitable() {
     }
   }
 
-  // 尝试创建
   try {
     const createRes = await apiPost("/bitable/v1/apps", {
       name: "自媒体平台评论统计",
@@ -140,7 +124,6 @@ async function getOrCreateTable(bitableToken) {
   } catch (e) {
     const code = e.response?.data?.code;
     console.error(`  ⚠️  列出数据表失败: ${code || e.message}`);
-    // 新表格可能还没有默认表，忽略列表失败
   }
 
   try {
@@ -158,7 +141,6 @@ async function getOrCreateTable(bitableToken) {
         ],
       },
     });
-    // 兼容多种返回结构
     const respData = createRes.data?.data || createRes.data;
     const table = respData?.table || respData;
     if (table?.table_id || table?.name) return table;

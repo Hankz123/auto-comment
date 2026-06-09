@@ -1,8 +1,9 @@
 const puppeteer = require("puppeteer-core");
 const path = require("path");
 const fs = require("fs");
+const config = require("./config");
 
-const CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME_PATH = config.chromePath;
 const PROFILES_DIR = path.join(__dirname, "chrome-profiles");
 if (!fs.existsSync(PROFILES_DIR)) fs.mkdirSync(PROFILES_DIR, { recursive: true });
 
@@ -14,16 +15,24 @@ function getProfilePath(accountName) {
 
 /**
  * 启动浏览器（Chrome --user-data-dir 持久化，登录态永不丢）
- * 返回 { browser } — 直接用 browser.newPage() 即可
+ * 返回 { browser }
  */
 async function launchBrowser(accountName) {
+  // 检查 Chrome 是否存在
+  if (!fs.existsSync(CHROME_PATH)) {
+    throw new Error(
+      `Chrome 未找到: ${CHROME_PATH}\n` +
+      `请设置 .env 中的 CHROME_PATH 指向正确的 Chrome 可执行文件`
+    );
+  }
+
   const userDataDir = getProfilePath(accountName);
 
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     userDataDir,
     headless: false,
-    defaultViewport: null, // 使用窗口默认大小
+    defaultViewport: null,
     args: [
       "--no-first-run",
       "--no-default-browser-check",
@@ -38,7 +47,7 @@ async function launchBrowser(accountName) {
 }
 
 /**
- * 关闭浏览器 — Chrome 自动将 Cookie 写盘，无需手动保存
+ * 关闭浏览器
  */
 async function closeBrowser({ browser, accountName }) {
   console.log(`  💾 ${accountName} 登录态已由 Chrome 自动保存`);
@@ -46,7 +55,7 @@ async function closeBrowser({ browser, accountName }) {
 }
 
 /**
- * 轮询等待用户手动登录（B站 专用）
+ * 轮询等待用户手动登录（B站专用）
  */
 async function waitForLogin(page, maxWaitMs = 120000) {
   console.log("  🔐 检测 B站 登录状态...");
@@ -137,14 +146,12 @@ async function searchBilibili(page, keyword) {
  */
 async function postComment(page, text) {
   try {
-    // 逐步滚动加载评论区
     for (let i = 0; i < 5; i++) {
       await page.evaluate(() => window.scrollBy(0, 400));
       await new Promise((r) => setTimeout(r, 500));
     }
     await new Promise((r) => setTimeout(r, 2000));
 
-    // 调试：打印 textarea 信息
     const debug = await page.evaluate(() => {
       const tas = document.querySelectorAll("textarea");
       return {
@@ -158,7 +165,6 @@ async function postComment(page, text) {
     });
     console.log("  🔍 页面 textarea:", JSON.stringify(debug));
 
-    // 多种方式找输入框
     let ta = await page.$("textarea:not([hidden])").catch(() => null);
 
     if (!ta) {
@@ -191,11 +197,10 @@ async function postComment(page, text) {
 
     await ta.click();
     await new Promise((r) => setTimeout(r, 500));
-    await ta.click({ clickCount: 3 }); // 全选清空
+    await ta.click({ clickCount: 3 });
     await ta.type(text, { delay: 50 });
     await new Promise((r) => setTimeout(r, 1000));
 
-    // 发布
     let sent = false;
     const btnSelectors = [
       ".reply-box button.bl-button--primary",
