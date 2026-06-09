@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B站自动回帖工具</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 24px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h1 .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      display: inline-block;
+    }
+    h1 .dot.stopped { background: #64748b; }
+    h1 .dot.running { background: #22c55e; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    select, input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:focus, input:focus, textarea:focus {
+      border-color: #3b82f6;
+    }
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    .flex-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .flex-row .form-group { flex: 1; margin-bottom: 0; }
+    .btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+    }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-success {
+      background: #22c55e;
+      color: white;
+    }
+    .btn-success:hover { background: #16a34a; }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #334155;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .tag .remove {
+      cursor: pointer;
+      color: #94a3b8;
+      font-weight: bold;
+      font-size: 16px;
+      line-height: 1;
+      margin-left: 2px;
+    }
+    .tag .remove:hover { color: #ef4444; }
+    .inline-form {
+      display: flex;
+      gap: 8px;
+    }
+    .inline-form input { flex: 1; }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .log {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 16px;
+      max-height: 300px;
+      overflow-y: auto;
+      font-family: "SF Mono", "Monaco", "Menlo", monospace;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    .log .entry { margin-bottom: 4px; }
+    .log .entry.info { color: #94a3b8; }
+    .log .entry.success { color: #22c55e; }
+    .log .entry.error { color: #ef4444; }
+    .log .entry.warn { color: #f59e0b; }
+    .hint {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .account-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+    }
+    .account-card .name {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .account-card .status {
+      font-size: 12px;
+      margin-left: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .account-card .status.logged-in { color: #22c55e; background: rgba(34,197,94,0.1); }
+    .account-card .status.logged-out { color: #f59e0b; background: rgba(245,158,11,0.1); }
+    .account-card .status.checking { color: #3b82f6; }
+    .account-card .btn-group { display: flex; gap: 6px; }
+    .btn-xs {
+      padding: 4px 10px;
+      font-size: 11px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-login { background: #3b82f6; color: white; }
+    .btn-login:hover { background: #2563eb; }
+    .btn-check { background: #334155; color: #e2e8f0; }
+    .btn-check:hover { background: #475569; }
+    .btn-delete { background: #7f1d1d; color: #fca5a5; }
+    .btn-delete:hover { background: #991b1b; color: white; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>
+    <span class="dot" id="statusDot"></span>
+    B站自动回帖工具
+  </h1>
+
+  <!-- 平台选择 -->
+  <div class="card">
+    <h2>📡 平台选择</h2>
+    <div class="form-group">
+      <select id="platform">
+        <option value="bilibili">B站 (bilibili.com)</option>
+        <option value="douyin" disabled>抖音 (即将支持)</option>
+        <option value="xiaohongshu" disabled>小红书 (即将支持)</option>
+        <option value="tieba" disabled>百度贴吧 (即将支持)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 账号池 -->
+  <div class="card">
+    <h2>👤 账号池</h2>
+    <div class="inline-form">
+      <input type="text" id="accountInput" placeholder="输入B站账号名称" />
+      <button class="btn btn-primary btn-sm" onclick="addAccount()">添加</button>
+    </div>
+    <div class="account-list" id="accountTags"></div>
+    <div class="hint">添加后使用"登录"打开浏览器登录B站，登录态会自动保存</div>
+  </div>
+
+  <!-- 关键词搜索 -->
+  <div class="card">
+    <h2>🔍 关键词搜索</h2>
+    <div class="form-group">
+      <input type="text" id="keywords" placeholder="多个关键词用空格分隔，例如：codex 安装 deepseek" />
+    </div>
+    <div class="hint">将在B站站内搜索，按"最新发布"排序，对第一页视频依次评论</div>
+  </div>
+
+  <!-- 评论内容池 -->
+  <div class="card">
+    <h2>💬 评论内容池</h2>
+    <div class="inline-form">
+      <input type="text" id="commentInput" placeholder="输入预设评论内容" />
+      <button class="btn btn-primary btn-sm" onclick="addComment()">添加</button>
+    </div>
+    <div class="tag-list" id="commentTags"></div>
+    <div class="hint">评论将在搜索结果中轮流使用。必填。</div>
+  </div>
+
+  <!-- 定时任务 -->
+  <div class="card">
+    <h2>⏱️ 定时任务</h2>
+    <div class="flex-row" style="margin-bottom:12px;">
+      <div class="form-group">
+        <label>评论间隔（分钟）*</label>
+        <input type="number" id="intervalMinutes" min="1" placeholder="比如: 20" />
+      </div>
+      <div class="form-group">
+        <label>切换账号间隔（分钟）</label>
+        <input type="number" id="switchAccountMinutes" min="0" placeholder="不填=不切换" />
+      </div>
+      <div class="form-group">
+        <label>任务总时长（分钟）*</label>
+        <input type="number" id="taskDurationMinutes" min="1" placeholder="比如: 120" />
+      </div>
+    </div>
+    <div class="hint">
+      评论间隔：发完一条评论后等多久发下一条<br>
+      切换账号间隔：完成一轮关键词后等多久换下一个账号（不填则仅用一个账号循环）<br>
+      任务总时长：本次任务最多运行多久，到时间自动停止
+    </div>
+  </div>
+
+  <!-- 操作按钮 -->
+  <div class="actions">
+    <button class="btn btn-success" id="btnStart" onclick="startTask()">🚀 开始执行</button>
+    <button class="btn btn-danger" id="btnStop" onclick="stopTask()" style="display:none;">⏹ 停止</button>
+  </div>
+
+  <!-- 日志 -->
+  <div class="log" id="logPanel">
+    <div class="entry info">📋 等待配置...</div>
+  </div>
+</div>
+
+<script>
+  // API 地址 — 始终指向 Express 服务端口
+  const API_BASE = "http://localhost:3456";
+
+  const state = {
+    accounts: [],
+    comments: [],
+  };
+
+  // ── 持久化（localStorage）──
+  function saveState() {
+    localStorage.setItem('bbr_accounts', JSON.stringify(state.accounts));
+    localStorage.setItem('bbr_comments', JSON.stringify(state.comments));
+    // 也保存表单配置
+    localStorage.setItem('bbr_keywords', document.getElementById('keywords').value);
+    localStorage.setItem('bbr_interval', document.getElementById('intervalMinutes').value);
+    localStorage.setItem('bbr_switchInterval', document.getElementById('switchAccountMinutes').value);
+    localStorage.setItem('bbr_duration', document.getElementById('taskDurationMinutes').value);
+    localStorage.setItem('bbr_platform', document.getElementById('platform').value);
+  }
+
+  function loadState() {
+    try {
+      state.accounts = JSON.parse(localStorage.getItem('bbr_accounts') || '[]');
+      state.comments = JSON.parse(localStorage.getItem('bbr_comments') || '[]');
+      document.getElementById('keywords').value = localStorage.getItem('bbr_keywords') || '';
+      document.getElementById('intervalMinutes').value = localStorage.getItem('bbr_interval') || '';
+      document.getElementById('switchAccountMinutes').value = localStorage.getItem('bbr_switchInterval') || '';
+      document.getElementById('taskDurationMinutes').value = localStorage.getItem('bbr_duration') || '';
+      const plat = localStorage.getItem('bbr_platform');
+      if (plat) document.getElementById('platform').value = plat;
+    } catch(_) {}
+  }
+
+  function renderAccounts() {
+    const container = document.getElementById("accountTags");
+    container.innerHTML = state.accounts.map((a, i) => {
+      const statusId = `status_${i}`;
+      return `
+        <div class="account-card">
+          <div>
+            <span class="name">${a}</span>
+            <span class="status" id="${statusId}"></span>
+          </div>
+          <div class="btn-group">
+            <button class="btn-xs btn-login" onclick="loginAccount('${a.replace(/'/g, "\\'")}')">🔑 登录</button>
+            <button class="btn-xs btn-check" onclick="checkAccount('${a.replace(/'/g, "\\'")}', '${statusId}')">🔍 检测</button>
+            <button class="btn-xs btn-delete" onclick="deleteAccount('${a.replace(/'/g, "\\'")}', ${i})">🗑 删除</button>
+          </div>
+        </div>`;
+    }).join("");
+    // 自动检测所有账号状态
+    state.accounts.forEach((a, i) => checkAccount(a, `status_${i}`));
+  }
+
+  async function loginAccount(account) {
+    log(`🔑 正在为「${account}」打开登录窗口...`, "info");
+    if (window._loginLock) return log("⚠️  已有登录操作进行中", "warn");
+    window._loginLock = true;
+    try {
+      const res = await fetch(API_BASE + "/api/account/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account }),
+      });
+      if (res.ok) {
+        log(`✅ 请在打开的浏览器中登录B站，登录完成后浏览器会自动关闭并保存登录态`, "success");
+      } else {
+        log(`❌ 启动失败`, "error");
+      }
+    } catch (e) {
+      log(`❌ ${e.message}`, "error");
+    }
+    window._loginLock = false;
+  }
+
+  async function checkAccount(account, statusId) {
+    const el = document.getElementById(statusId);
+    if (!el) return;
+    el.textContent = "检测中...";
+    el.className = "status checking";
+    try {
+      const res = await fetch(API_BASE + `/api/account/check?account=${encodeURIComponent(account)}`);
+      const data = await res.json();
+      if (data.loggedIn) {
+        el.textContent = "✅ 已登录";
+        el.className = "status logged-in";
+      } else {
+        el.textContent = `⚠ ${data.reason}`;
+        el.className = "status logged-out";
+      }
+    } catch (e) {
+      el.textContent = "❌ 检测失败";
+      el.className = "status logged-out";
+    }
+  }
+
+  async function deleteAccount(account, index) {
+    if (!confirm(`确认删除账号「${account}」及其所有数据（登录态、截图）？`)) return;
+    try {
+      await fetch(API_BASE + "/api/account", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account }),
+      });
+    } catch (_) {}
+    state.accounts.splice(index, 1);
+    renderAccounts();
+    saveState();
+    log(`🗑 已删除账号「${account}」`, "warn");
+  }
+
+  function removeAccount(index) {
+    deleteAccount(state.accounts[index], index);
+  }
+
+  function renderComments() {
+    const container = document.getElementById("commentTags");
+    container.innerHTML = state.comments.map((c, i) =>
+      `<span class="tag">${c.substring(0, 40)}...<span class="remove" onclick="removeComment(${i})">×</span></span>`
+    ).join("");
+  }
+
+  function addAccount() {
+    const input = document.getElementById("accountInput");
+    const name = input.value.trim();
+    if (!name) return;
+    if (!state.accounts.includes(name)) {
+      state.accounts.push(name);
+      renderAccounts();
+      saveState();
+    }
+    input.value = "";
+  }
+
+  function addComment() {
+    const input = document.getElementById("commentInput");
+    const text = input.value.trim();
+    if (!text) return;
+    state.comments.push(text);
+    renderComments();
+    saveState();
+    input.value = "";
+  }
+
+  function removeComment(index) {
+    state.comments.splice(index, 1);
+    renderComments();
+    saveState();
+  }
+
+  function log(msg, level = "info") {
+    const panel = document.getElementById("logPanel");
+    const entry = document.createElement("div");
+    entry.className = `entry ${level}`;
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    panel.appendChild(entry);
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  async function checkStatus() {
+    try {
+      const res = await fetch(API_BASE + "/api/status");
+      const data = await res.json();
+      updateStatusDot(data.running);
+      return data;
+    } catch (e) {
+      updateStatusDot(false);
+      return { running: false };
+    }
+  }
+
+  function updateStatusDot(running) {
+    const dot = document.getElementById("statusDot");
+    dot.className = "dot " + (running ? "running" : "stopped");
+  }
+
+  async function startTask() {
+    const keywords = document.getElementById("keywords").value.trim();
+    const intervalMinutes = parseInt(document.getElementById("intervalMinutes").value);
+    const switchAccountMinutes = parseInt(document.getElementById("switchAccountMinutes").value) || 0;
+    const taskDurationMinutes = parseInt(document.getElementById("taskDurationMinutes").value);
+
+    if (!state.accounts.length) return alert("请添加至少一个账号");
+    if (!keywords) return alert("请填写关键词");
+    if (!state.comments.length) return alert("请添加至少一条评论内容");
+    if (!intervalMinutes || intervalMinutes < 1) return alert("请填写评论间隔（≥1分钟）");
+    if (!taskDurationMinutes || taskDurationMinutes < 1) return alert("请填写任务总时长（≥1分钟）");
+
+    const config = {
+      platform: document.getElementById("platform").value,
+      accounts: state.accounts,
+      keywords,
+      comments: state.comments,
+      intervalMinutes,
+      switchAccountMinutes,
+      taskDurationMinutes,
+    };
+
+    try {
+      const res = await fetch(API_BASE + "/api/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+
+      if (res.ok) {
+        log("✅ 任务已启动", "success");
+        log(`平台: ${config.platform}, 账号: ${config.accounts.join(", ")}`, "info");
+        log(`关键词: ${config.keywords}`, "info");
+        log(`评论内容: ${config.comments.length} 条`, "info");
+        log(`评论间隔: ${config.intervalMinutes} 分钟 | 切换账号: ${config.switchAccountMinutes} 分钟 | 总时长: ${config.taskDurationMinutes} 分钟`, "info");
+        document.getElementById("btnStart").style.display = "none";
+        document.getElementById("btnStop").style.display = "block";
+        updateStatusDot(true);
+      } else {
+        const err = await res.json();
+        log(`❌ 启动失败: ${err.error}`, "error");
+      }
+    } catch (e) {
+      log(`❌ 连接失败: ${e.message}`, "error");
+    }
+  }
+
+  async function stopTask() {
+    try {
+      await fetch(API_BASE + "/api/stop", { method: "POST" });
+      log("⏹ 已发送停止信号", "warn");
+      document.getElementById("btnStart").style.display = "block";
+      document.getElementById("btnStop").style.display = "none";
+      updateStatusDot(false);
+    } catch (e) {
+      log(`❌ 停止失败: ${e.message}`, "error");
+    }
+  }
+
+  // 回车键快速添加
+  document.getElementById("accountInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addAccount();
+  });
+  document.getElementById("commentInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") addComment();
+  });
+
+  // 表单字段变更时自动保存
+  ["keywords", "intervalMinutes", "switchAccountMinutes", "taskDurationMinutes", "platform"].forEach(id => {
+    document.getElementById(id).addEventListener("input", saveState);
+  });
+
+  // 初始加载
+  loadState();
+  checkStatus();
+  renderAccounts();
+  renderComments();
+</script>
+</body>
+</html>
